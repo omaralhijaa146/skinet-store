@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using skinet.API.Dtos;
+using skinet.API.Errors;
+using skinet.API.Helpers;
 using skinet.Core.Entities;
 using skinet.Core.Interfaces;
 using skinet.Core.Specifications;
@@ -11,9 +13,8 @@ using skinet.Infrastructure.Data;
 
 namespace skinet.API.Controllers
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class ProductsController : ControllerBase
+    
+    public class ProductsController : BaseApiController
     {
 
         private readonly IGenericRepository<Product> _productRepository;
@@ -31,19 +32,31 @@ namespace skinet.API.Controllers
         }
         
         [HttpGet]
-        public async Task<ActionResult<IReadOnlyList<Product>>> GetProducts()
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse),StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<Pagination<Product>>> GetProducts([FromQuery] ProductSpecParams productParams)
         {
-            var spec = new ProductsWithTypesAndBrandsSpecification();
+            var spec = new ProductsWithTypesAndBrandsSpecification(productParams);
+            var countSpec= new ProductWithFiltersForCountSpecifications(productParams);
+
+            var totalItems = await _productRepository.CountAsync(countSpec);
             
-            var result = await _productRepository.ListAllAsyncSpec(spec);
-            return Ok(_mapper.Map<IReadOnlyList<Product>,IReadOnlyList<ProductDto>>(result));
+            var products = await _productRepository.ListAllAsyncSpec(spec);
+            var data = _mapper.Map<IReadOnlyList<Product>, IReadOnlyList<ProductDto>>(products);
+            return Ok(new Pagination<ProductDto>(productParams.PageIndex,productParams.PageSize,totalItems,data));
         }
         
         [HttpGet("{id}")]
+        
         public async Task<ActionResult<ProductDto>> GetProduct(int id)
         {
             var spec = new ProductsWithTypesAndBrandsSpecification(id);
             var product = await _productRepository.GetEntityWithSpec(spec);
+
+            if (product is null)
+            {
+                return NotFound(new ApiResponse(404));
+            }
             
             return _mapper.Map<ProductDto>(product);
         }

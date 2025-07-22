@@ -1,40 +1,39 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using skinet.API.Helpers;
-using skinet.Core.Interfaces;
+using skinet.API.Extensions;
+using skinet.API.Middleware;
+using skinet.Core.Entities.Identity;
 using skinet.Infrastructure.Data;
+using skinet.Infrastructure.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-builder.Services.AddDbContext<StoreContext>(options =>
-{
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"));
+builder.Services.AddControllers(opt =>
+{ 
+   
 });
-
-builder.Services.AddScoped<IProductRepository, ProductRepository>();
-builder.Services.AddScoped(typeof(IGenericRepository<>),typeof(GenericRepository<>));
-builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-
+builder.Services.AddApplicationServices(builder.Configuration);
+builder.Services.AddIdentityServices(builder.Configuration);
+builder.Services.AddSwaggerDocumentation();
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+
+app.UseMiddleware<ExceptionMiddleware>();
+app.UseStatusCodePagesWithRedirects("/errors/{0}");
+
+
+app.UseSwaggerDocumentation();
+
 
 app.UseStaticFiles();
 
 //app.UseHttpsRedirection();
+app.UseCors("CorsPolicy");
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
@@ -43,11 +42,15 @@ using var scope= app.Services.CreateScope();
 
 var services= scope.ServiceProvider;
 var context= services.GetRequiredService<StoreContext>();
+var identityContext= services.GetRequiredService<AppIdentityDbContext>();
+var userManager= services.GetRequiredService<UserManager<AppUser>>();
 var logger= services.GetRequiredService<ILogger<Program>>();
 try
 {
     await context.Database.MigrateAsync();
+    await identityContext.Database.MigrateAsync();
     await StoreContextSeed.SeedAsync(context);
+    await AppIdentityDbContextSeed.SeedUsersAsync(userManager);
 }
 catch (Exception e)
 {
